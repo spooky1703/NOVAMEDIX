@@ -1,12 +1,12 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { Package, Search } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { obtenerProductosCatalogo, obtenerCategorias } from '@/lib/db/productos.queries';
 import { ProductGrid } from '@/components/catalogo/ProductGrid';
 import { ProductPagination } from '@/components/catalogo/ProductPagination';
 import { ProductFilters } from '@/components/catalogo/ProductFilters';
+import { LiveSearch } from '@/components/catalogo/LiveSearch';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface CatalogoPageProps {
@@ -52,17 +52,11 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
                             Nova<span className="text-emerald-600">Medix</span>
                         </span>
                     </Link>
-                    <form action="/catalogo" method="GET" className="hidden flex-1 px-8 sm:block">
-                        <div className="relative mx-auto max-w-xl">
-                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <Input
-                                name="busqueda"
-                                placeholder="Buscar por nombre, clave o código..."
-                                defaultValue={params.busqueda || ''}
-                                className="pl-10"
-                            />
+                    <div className="hidden flex-1 px-8 sm:block">
+                        <div className="mx-auto max-w-xl">
+                            <LiveSearch />
                         </div>
-                    </form>
+                    </div>
                     <Link href="/login">
                         <Button variant="ghost" size="sm" className="text-slate-500">
                             Admin
@@ -71,17 +65,7 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
                 </div>
                 {/* Mobile search */}
                 <div className="border-t px-4 py-2 sm:hidden">
-                    <form action="/catalogo" method="GET">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <Input
-                                name="busqueda"
-                                placeholder="Buscar productos..."
-                                defaultValue={params.busqueda || ''}
-                                className="pl-10"
-                            />
-                        </div>
-                    </form>
+                    <LiveSearch placeholder="Buscar productos..." />
                 </div>
             </header>
 
