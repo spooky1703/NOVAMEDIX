@@ -1,19 +1,36 @@
-import { auth } from '@/lib/auth';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export default auth((req) => {
-    const isAdminRoute = req.nextUrl.pathname.startsWith('/admin');
+/**
+ * Lightweight middleware that checks for auth session cookie.
+ * Does NOT import auth/prisma to stay under Edge Function 1MB limit.
+ */
+export function middleware(request: NextRequest) {
+    const isAdminRoute = request.nextUrl.pathname.startsWith('/admin');
     const isApiAdminRoute =
-        req.nextUrl.pathname.startsWith('/api/productos') &&
-        req.method !== 'GET';
-    const isImportRoute = req.nextUrl.pathname.startsWith('/api/importar');
+        request.nextUrl.pathname.startsWith('/api/productos') &&
+        request.method !== 'GET';
+    const isImportRoute = request.nextUrl.pathname.startsWith('/api/importar');
 
-    if ((isAdminRoute || isApiAdminRoute || isImportRoute) && !req.auth) {
-        return NextResponse.redirect(new URL('/login', req.url));
+    if (isAdminRoute || isApiAdminRoute || isImportRoute) {
+        // Check for NextAuth session token (set as cookie)
+        const sessionToken =
+            request.cookies.get('authjs.session-token') ??
+            request.cookies.get('__Secure-authjs.session-token');
+
+        if (!sessionToken) {
+            if (request.nextUrl.pathname.startsWith('/api/')) {
+                return NextResponse.json(
+                    { error: 'No autorizado' },
+                    { status: 401 }
+                );
+            }
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
     }
 
     return NextResponse.next();
-});
+}
 
 export const config = {
     matcher: ['/admin/:path*', '/api/productos/:path*', '/api/importar/:path*'],
