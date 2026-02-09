@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -16,11 +17,14 @@ interface ProductPaginationProps {
 export function ProductPagination({ paginacion }: ProductPaginationProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const [isPending, startTransition] = useTransition();
 
     const goToPage = (page: number) => {
         const params = new URLSearchParams(searchParams.toString());
         params.set('pagina', page.toString());
-        router.push(`/catalogo?${params.toString()}`);
+        startTransition(() => {
+            router.push(`/catalogo?${params.toString()}`, { scroll: true });
+        });
     };
 
     const { pagina, totalPaginas } = paginacion;
@@ -42,7 +46,7 @@ export function ProductPagination({ paginacion }: ProductPaginationProps) {
                 variant="outline"
                 size="icon"
                 onClick={() => goToPage(pagina - 1)}
-                disabled={pagina <= 1}
+                disabled={pagina <= 1 || isPending}
                 className="h-9 w-9"
             >
                 <ChevronLeft className="h-4 w-4" />
@@ -54,6 +58,7 @@ export function ProductPagination({ paginacion }: ProductPaginationProps) {
                         variant={pagina === 1 ? 'default' : 'outline'}
                         size="icon"
                         onClick={() => goToPage(1)}
+                        disabled={isPending}
                         className="h-9 w-9"
                     >
                         1
@@ -70,6 +75,7 @@ export function ProductPagination({ paginacion }: ProductPaginationProps) {
                     variant={page === pagina ? 'default' : 'outline'}
                     size="icon"
                     onClick={() => goToPage(page)}
+                    disabled={isPending}
                     className={`h-9 w-9 ${page === pagina ? 'bg-emerald-600 text-white hover:bg-emerald-700' : ''}`}
                 >
                     {page}
@@ -85,6 +91,7 @@ export function ProductPagination({ paginacion }: ProductPaginationProps) {
                         variant={pagina === totalPaginas ? 'default' : 'outline'}
                         size="icon"
                         onClick={() => goToPage(totalPaginas)}
+                        disabled={isPending}
                         className="h-9 w-9"
                     >
                         {totalPaginas}
@@ -96,7 +103,7 @@ export function ProductPagination({ paginacion }: ProductPaginationProps) {
                 variant="outline"
                 size="icon"
                 onClick={() => goToPage(pagina + 1)}
-                disabled={pagina >= totalPaginas}
+                disabled={pagina >= totalPaginas || isPending}
                 className="h-9 w-9"
             >
                 <ChevronRight className="h-4 w-4" />

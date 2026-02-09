@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useRef, useEffect, useTransition } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { Search, X, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -16,61 +16,72 @@ export function LiveSearch({
 }: LiveSearchProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [query, setQuery] = useState(searchParams.get('busqueda') || '');
-    const [isSearching, setIsSearching] = useState(false);
+    const [isPending, startTransition] = useTransition();
 
-    // Debounced search — pushes URL params after 300ms of no typing
-    const pushSearch = useCallback(
-        (value: string) => {
-            const params = new URLSearchParams(searchParams.toString());
-            if (value.trim()) {
-                params.set('busqueda', value.trim());
-            } else {
-                params.delete('busqueda');
-            }
-            params.delete('pagina'); // Reset to page 1 on new search
-            router.push(`/catalogo?${params.toString()}`);
-            setIsSearching(false);
-        },
-        [router, searchParams]
-    );
+    // Use an uncontrolled input via ref to avoid React re-render conflicts
+    const inputRef = useRef<HTMLInputElement>(null);
+    const debounceRef = useRef<NodeJS.Timeout | null>(null);
+    const [hasValue, setHasValue] = useState(!!searchParams.get('busqueda'));
 
+    // Set initial value from URL on mount only
     useEffect(() => {
-        setIsSearching(true);
-        const timer = setTimeout(() => {
-            pushSearch(query);
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [query, pushSearch]);
-
-    // Sync with URL if user navigates back/forward
-    useEffect(() => {
-        const urlQuery = searchParams.get('busqueda') || '';
-        if (urlQuery !== query) {
-            setQuery(urlQuery);
+        const urlValue = searchParams.get('busqueda') || '';
+        if (inputRef.current && !inputRef.current.matches(':focus')) {
+            inputRef.current.value = urlValue;
+            setHasValue(!!urlValue);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
-    const handleClear = () => {
-        setQuery('');
+    const pushSearch = (value: string) => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (value.trim()) {
+            params.set('busqueda', value.trim());
+        } else {
+            params.delete('busqueda');
+        }
+        params.delete('pagina');
+        startTransition(() => {
+            router.push(`/catalogo?${params.toString()}`);
+        });
     };
+
+    const handleInput = () => {
+        const value = inputRef.current?.value || '';
+        setHasValue(!!value);
+
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => pushSearch(value), 400);
+    };
+
+    const handleClear = () => {
+        if (inputRef.current) inputRef.current.value = '';
+        setHasValue(false);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        pushSearch('');
+    };
+
+    useEffect(() => {
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+        };
+    }, []);
 
     return (
         <div className={`relative ${className}`}>
-            {isSearching ? (
+            {isPending ? (
                 <Loader2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-500" />
             ) : (
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             )}
-            <Input
+            <input
+                ref={inputRef}
                 type="text"
                 placeholder={placeholder}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="pl-10 pr-9"
+                defaultValue={searchParams.get('busqueda') || ''}
+                onInput={handleInput}
+                className="flex h-9 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 pl-10 pr-9 text-sm shadow-sm transition-colors placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950"
             />
-            {query && (
+            {hasValue && (
                 <button
                     type="button"
                     onClick={handleClear}
