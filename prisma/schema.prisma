@@ -1,0 +1,75 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Producto {
+  id          String   @id @default(cuid())
+  clave       String   @unique
+  codigo      String
+  nombre      String   @default("")
+  descripcion String?
+  precio      Decimal  @db.Decimal(10, 2)
+  categoria   String?
+  activo      Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([nombre])
+  @@index([clave])
+  @@index([codigo])
+  @@index([categoria])
+  @@index([activo])
+  @@map("productos")
+}
+
+model ImportacionLog {
+  id                    String            @id @default(cuid())
+  nombreArchivo         String
+  totalFilas            Int
+  productosCreados      Int
+  productosActualizados Int
+  erroresCount          Int               @default(0)
+  erroresDetalle        Json?
+  estado                EstadoImportacion
+  duracionMs            Int?
+  importadoPor          String
+
+  createdAt             DateTime          @default(now())
+
+  @@index([createdAt])
+  @@index([estado])
+  @@map("importaciones_log")
+}
+
+enum EstadoImportacion {
+  EXITOSO
+  PARCIAL
+  FALLIDO
+}
+
+model Usuario {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  nombre    String
+  rol       Rol      @default(ADMIN)
+  activo    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("usuarios")
+}
+
+enum Rol {
+  ADMIN
+  SUPERADMIN
+}
