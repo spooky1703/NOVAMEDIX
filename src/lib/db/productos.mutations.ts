@@ -29,7 +29,8 @@ export async function toggleProductoActivo(id: string) {
 
 /**
  * Bulk upsert of products from Excel import.
- * Uses a transaction to ensure atomicity.
+ * Uses parallel batches of upserts (no interactive transactions)
+ * to avoid timeout issues with remote databases like Supabase.
  */
 export async function importarProductosMasivo(
     productos: ProductoCreate[],
@@ -44,48 +45,55 @@ export async function importarProductosMasivo(
     const errores: Array<{ index: number; error: string }> = [];
 
     try {
-        // Process in batches to avoid transaction timeout
-        const BATCH_SIZE = 100;
-        const batches = [];
+        // Process in small concurrent batches to maximize speed
+        // without overwhelming the connection pool
+        const BATCH_SIZE = 25;
+
         for (let i = 0; i < productos.length; i += BATCH_SIZE) {
-            batches.push(productos.slice(i, i + BATCH_SIZE));
-        }
+            const batch = productos.slice(i, i + BATCH_SIZE);
 
-        for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-            const batch = batches[batchIdx];
-            await prisma.$transaction(async (tx) => {
-                for (let i = 0; i < batch.length; i++) {
-                    const globalIdx = batchIdx * BATCH_SIZE + i;
-                    try {
-                        const producto = batch[i];
-                        const existe = await tx.producto.findUnique({
-                            where: { clave: producto.clave },
-                        });
+            // Run each batch concurrently with Promise.allSettled
+            const results = await Promise.allSettled(
+                batch.map(async (producto, batchIndex) => {
+                    const globalIdx = i + batchIndex;
+                    const result = await prisma.producto.upsert({
+                        where: { clave: producto.clave },
+                        update: {
+                            codigo: producto.codigo,
+                            nombre: producto.nombre,
+                            precio: producto.precio,
+                            categoria: producto.categoria,
+                        },
+                        create: producto,
+                    });
 
-                        if (existe) {
-                            await tx.producto.update({
-                                where: { clave: producto.clave },
-                                data: {
-                                    codigo: producto.codigo,
-                                    nombre: producto.nombre,
-                                    precio: producto.precio,
-                                    categoria: producto.categoria,
-                                },
-                            });
-                            actualizados++;
-                        } else {
-                            await tx.producto.create({ data: producto });
-                            creados++;
-                        }
-                    } catch (error) {
-                        errores.push({
-                            index: globalIdx + 2, // +2 accounts for header row and 0-index
-                            error:
-                                error instanceof Error ? error.message : 'Error desconocido',
-                        });
+                    // Check if it was created or updated by comparing createdAt vs updatedAt
+                    const isNew =
+                        result.createdAt.getTime() === result.updatedAt.getTime() ||
+                        Date.now() - result.createdAt.getTime() < 5000;
+
+                    return { globalIdx, isNew };
+                })
+            );
+
+            // Process results
+            for (const result of results) {
+                if (result.status === 'fulfilled') {
+                    if (result.value.isNew) {
+                        creados++;
+                    } else {
+                        actualizados++;
                     }
+                } else {
+                    errores.push({
+                        index: i + 2,
+                        error:
+                            result.reason instanceof Error
+                                ? result.reason.message
+                                : 'Error desconocido',
+                    });
                 }
-            });
+            }
         }
 
         // Log the import
