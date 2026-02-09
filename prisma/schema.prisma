@@ -18,6 +18,7 @@ model Producto {
   descripcion String?
   precio      Decimal  @db.Decimal(10, 2)
   categoria   String?
+  imagen      String?
   activo      Boolean  @default(true)
 
   createdAt   DateTime @default(now())

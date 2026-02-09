@@ -1,5 +1,8 @@
+'use client';
+
 import { Producto } from '@prisma/client';
 import Link from 'next/link';
+import { useState } from 'react';
 import { Package, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -9,13 +12,25 @@ interface ProductCardProps {
 
 export function ProductCard({ producto }: ProductCardProps) {
     const precio = Number(producto.precio);
+    const [imgError, setImgError] = useState(false);
+    const hasImage = producto.imagen && !imgError;
 
     return (
         <Link href={`/producto/${producto.id}`}>
             <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-lg">
-                {/* Image placeholder */}
-                <div className="flex h-40 items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50/30">
-                    <Package className="h-12 w-12 text-emerald-200 transition-colors group-hover:text-emerald-300" />
+                {/* Image */}
+                <div className="flex h-40 items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 to-emerald-50/30">
+                    {hasImage ? (
+                        <img
+                            src={producto.imagen!}
+                            alt={producto.nombre || producto.codigo}
+                            className="h-full w-full object-contain p-3 transition-transform group-hover:scale-105"
+                            onError={() => setImgError(true)}
+                            loading="lazy"
+                        />
+                    ) : (
+                        <Package className="h-12 w-12 text-emerald-200 transition-colors group-hover:text-emerald-300" />
+                    )}
                 </div>
 
                 {/* Content */}
