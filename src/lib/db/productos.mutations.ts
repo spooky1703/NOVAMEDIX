@@ -56,23 +56,11 @@ export async function importarProductosMasivo(
             const results = await Promise.allSettled(
                 batch.map(async (producto, batchIndex) => {
                     const globalIdx = i + batchIndex;
-                    const result = await prisma.producto.upsert({
-                        where: { clave: producto.clave },
-                        update: {
-                            codigo: producto.codigo,
-                            nombre: producto.nombre,
-                            precio: producto.precio,
-                            categoria: producto.categoria,
-                        },
-                        create: producto,
+                    const result = await prisma.producto.create({
+                        data: producto
                     });
 
-                    // Check if it was created or updated by comparing createdAt vs updatedAt
-                    const isNew =
-                        result.createdAt.getTime() === result.updatedAt.getTime() ||
-                        Date.now() - result.createdAt.getTime() < 5000;
-
-                    return { globalIdx, isNew };
+                    return { globalIdx, isNew: true };
                 })
             );
 

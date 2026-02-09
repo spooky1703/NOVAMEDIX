@@ -12,7 +12,7 @@ datasource db {
 
 model Producto {
   id          String   @id @default(cuid())
-  clave       String   @unique
+  clave       String
   codigo      String
   nombre      String   @default("")
   descripcion String?
