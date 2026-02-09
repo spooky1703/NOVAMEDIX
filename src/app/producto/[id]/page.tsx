@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Package, Tag, Hash, Calendar } from 'lucide-react';
+import { ArrowLeft, Package, Tag, Hash, Calendar, ImageOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { obtenerProductoPorId } from '@/lib/db/productos.queries';
+import { ProductDetailImage } from '@/components/catalogo/ProductDetailImage';
 
 interface ProductoDetailProps {
     params: Promise<{ id: string }>;
@@ -39,8 +40,11 @@ export default async function ProductoDetailPage({ params }: ProductoDetailProps
                 <Card className="overflow-hidden border-slate-200 shadow-sm">
                     <div className="grid md:grid-cols-2">
                         {/* Image */}
-                        <div className="flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50/30 p-12">
-                            <Package className="h-32 w-32 text-emerald-200" />
+                        <div className="flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50/30 p-8">
+                            <ProductDetailImage
+                                src={producto.imagen}
+                                alt={producto.nombre || producto.codigo}
+                            />
                         </div>
 
                         {/* Details */}
