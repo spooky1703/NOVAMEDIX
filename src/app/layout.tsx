@@ -4,6 +4,7 @@ import './globals.css';
 import { SessionProvider } from '@/components/providers/SessionProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { RequestProductDialog } from '@/components/catalogo/RequestProductDialog';
+import { Analytics } from '@vercel/analytics/next';
 
 const inter = Inter({
   variable: '--font-inter',
@@ -35,6 +36,7 @@ export default function RootLayout({
               ⚠️ Imágenes ilustrativas. Por favor consulta disponibilidad del modelo exacto antes de ordenar.
             </p>
           </div>
+          <Analytics />
         </SessionProvider>
       </body>
     </html>
