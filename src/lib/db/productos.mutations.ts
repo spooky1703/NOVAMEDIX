@@ -28,9 +28,12 @@ export async function toggleProductoActivo(id: string) {
 }
 
 /**
- * Bulk upsert of products from Excel import.
- * Uses parallel batches of upserts (no interactive transactions)
- * to avoid timeout issues with remote databases like Supabase.
+ * Bulk smart import of products.
+ * 1. Checks if product exists by (clave + codigo).
+ * 2. If exists -> Update (preserves image, updates price/name).
+ * 3. If not -> Create.
+ * 
+ * This avoids duplicate "garbage" records while allowing updates to catalog.
  */
 export async function importarProductosMasivo(
     productos: ProductoCreate[],
@@ -45,22 +48,47 @@ export async function importarProductosMasivo(
     const errores: Array<{ index: number; error: string }> = [];
 
     try {
-        // Process in small concurrent batches to maximize speed
-        // without overwhelming the connection pool
+        // Process in small concurrent batches
         const BATCH_SIZE = 25;
 
         for (let i = 0; i < productos.length; i += BATCH_SIZE) {
             const batch = productos.slice(i, i + BATCH_SIZE);
 
-            // Run each batch concurrently with Promise.allSettled
+            // Run each batch concurrently
             const results = await Promise.allSettled(
                 batch.map(async (producto, batchIndex) => {
                     const globalIdx = i + batchIndex;
-                    const result = await prisma.producto.create({
-                        data: producto
+
+                    // SMART CHECK: Does this product exist?
+                    // We match by CLAVE and CODIGO to identify it.
+                    const existente = await prisma.producto.findFirst({
+                        where: {
+                            clave: producto.clave,
+                            codigo: producto.codigo
+                        },
+                        select: { id: true }
                     });
 
-                    return { globalIdx, isNew: true };
+                    if (existente) {
+                        // UPDATE existing
+                        await prisma.producto.update({
+                            where: { id: existente.id },
+                            data: {
+                                nombre: producto.nombre,
+                                precio: producto.precio,
+                                categoria: producto.categoria,
+                                // Don't update 'activo' or 'imagen' to preserve manual changes
+                                updatedAt: new Date()
+                            }
+                        });
+                        return { globalIdx, isNew: false };
+                    } else {
+                        // CREATE new
+                        await prisma.producto.create({
+                            data: producto
+                        });
+                        return { globalIdx, isNew: true };
+                    }
                 })
             );
 
@@ -112,7 +140,7 @@ export async function importarProductosMasivo(
             duracionMs: Date.now() - startTime,
         };
     } catch (error) {
-        // Log the failed import
+        // Log import failure
         await prisma.importacionLog.create({
             data: {
                 nombreArchivo: metadata.nombreArchivo,
