@@ -151,9 +151,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <Button
               variant="link"
               className="mt-4 text-teal-600 hover:text-teal-700"
-              onClick={() => window.location.href = '/'}
+              asChild
             >
-              Ver todos los productos
+              <Link href="/">
+                Ver todos los productos
+              </Link>
             </Button>
           </div>
         )}

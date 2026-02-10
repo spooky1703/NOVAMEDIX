@@ -119,17 +119,16 @@ export default async function ProductoDetailPage({ params }: ProductoDetailProps
                             </div>
 
                             <div className="flex flex-col gap-3">
-                                <a
-                                    href={whatsappUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-full"
-                                >
-                                    <Button size="lg" className="w-full h-14 bg-teal-600 hover:bg-teal-700 text-lg gap-2 shadow-lg shadow-teal-900/10">
+                                <Button size="lg" className="w-full h-14 bg-teal-600 hover:bg-teal-700 text-lg gap-2 shadow-lg shadow-teal-900/10" asChild>
+                                    <a
+                                        href={whatsappUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
                                         <MessageCircle className="h-5 w-5" />
                                         Ordenar / Preguntar Detalles
-                                    </Button>
-                                </a>
+                                    </a>
+                                </Button>
                                 <p className="text-center text-xs text-slate-400">
                                     Te responderemos vía WhatsApp para confirmar existencias.
                                 </p>
