@@ -63,7 +63,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </header>
 
       {/* ─── HERO ─── */}
-      <section className="relative overflow-hidden bg-[#0f1b2d] pb-16 pt-12">
+      <section className="relative bg-[#0f1b2d] pb-16 pt-12">
         {/* Red accent wave – top right */}
         <div className="pointer-events-none absolute -right-20 -top-20 h-[320px] w-[320px] rounded-full bg-red-600/20 blur-3xl" />
         <div className="pointer-events-none absolute -left-32 top-10 h-[220px] w-[400px] rotate-12 rounded-full bg-blue-700/10 blur-2xl" />

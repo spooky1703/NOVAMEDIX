@@ -59,20 +59,23 @@ def parse_database_url(url: str) -> dict:
 
 
 def clean_product_name(nombre: str) -> str:
+    """Clean product name for image search. Keeps dosage info for precision."""
     if not nombre: return ""
     name = re.sub(r"\([^)]*\)", "", nombre).strip()
     name = re.sub(r"[,/]", " ", name)
-    words = re.findall(r"[A-Za-záéíóúñÁÉÍÓÚÑ\-]+", name.upper())
+    words = re.findall(r"[A-Za-záéíóúñÁÉÍÓÚÑ0-9.\-]+", name.upper())
     
     cleaned = []
     for w in words:
         if w in NOISE_WORDS: continue
-        if re.match(r"^\d+$", w): continue
-        if re.match(r"^\d+[A-Z]+$", w): continue
         if len(w) <= 1: continue
+        # Keep dosage numbers like "500MG", "0.5MG", "100ML" — they matter
+        # Only skip pure standalone numbers
+        if re.match(r"^\d+$", w): continue
         cleaned.append(w)
 
-    return " ".join(cleaned[:3]).lower()
+    # Use up to 6 words for better search precision
+    return " ".join(cleaned[:6]).lower()
 
 
 def search_web_image(product_name: str, retries: int = 2) -> str | None:
