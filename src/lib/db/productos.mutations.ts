@@ -1,3 +1,4 @@
+import { PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import type { ProductoCreate, ProductoUpdate } from '@/lib/validations/producto.schema';
 
@@ -28,12 +29,7 @@ export async function toggleProductoActivo(id: string) {
 }
 
 /**
- * Bulk smart import of products.
- * 1. Checks if product exists by (clave + codigo).
- * 2. If exists -> Update (preserves image, updates price/name).
- * 3. If not -> Create.
- * 
- * This avoids duplicate "garbage" records while allowing updates to catalog.
+ * Bulk smart import of products (Optimized).
  */
 export async function importarProductosMasivo(
     productos: ProductoCreate[],
@@ -45,70 +41,93 @@ export async function importarProductosMasivo(
     const startTime = Date.now();
     let creados = 0;
     let actualizados = 0;
+    let erroresCount = 0;
     const errores: Array<{ index: number; error: string }> = [];
 
     try {
-        // Process in small concurrent batches
-        const BATCH_SIZE = 25;
+        // 1. Fetch all existing products (lightweight)
+        const existentes = await prisma.producto.findMany({
+            select: { id: true, clave: true, codigo: true }
+        });
 
-        for (let i = 0; i < productos.length; i += BATCH_SIZE) {
-            const batch = productos.slice(i, i + BATCH_SIZE);
+        // Map: "CLAVE|CODIGO" -> [ID1, ID2, ...] (List of IDs to handle duplicates)
+        const mapaExistentes = new Map<string, string[]>();
+        existentes.forEach(p => {
+            const key = `${p.clave.trim()}|${p.codigo.trim()}`;
+            const list = mapaExistentes.get(key) || [];
+            list.push(p.id);
+            mapaExistentes.set(key, list);
+        });
 
-            // Run each batch concurrently
-            const results = await Promise.allSettled(
-                batch.map(async (producto, batchIndex) => {
-                    const globalIdx = i + batchIndex;
+        const toCreate: ProductoCreate[] = [];
+        const toUpdate: { id: string; data: ProductoCreate }[] = [];
 
-                    // SMART CHECK: Does this product exist?
-                    // We match by CLAVE and CODIGO to identify it.
-                    const existente = await prisma.producto.findFirst({
-                        where: {
-                            clave: producto.clave,
-                            codigo: producto.codigo
-                        },
-                        select: { id: true }
-                    });
+        // 2. Classify
+        productos.forEach((p, index) => {
+            const key = `${p.clave.toString().trim()}|${p.codigo.toString().trim()}`;
 
-                    if (existente) {
-                        // UPDATE existing
-                        await prisma.producto.update({
-                            where: { id: existente.id },
+            if (mapaExistentes.has(key)) {
+                // If found, queue update for ALL matching IDs
+                const ids = mapaExistentes.get(key)!;
+                ids.forEach(id => {
+                    toUpdate.push({ id, data: p });
+                });
+            } else {
+                toCreate.push(p);
+            }
+        });
+
+        // 3. Bulk Create (Fast)
+        if (toCreate.length > 0) {
+            // Processing in chunks of 1000 just to be safe with query size limits
+            const CHUNK_SIZE = 1000;
+            for (let i = 0; i < toCreate.length; i += CHUNK_SIZE) {
+                const chunk = toCreate.slice(i, i + CHUNK_SIZE);
+                await prisma.producto.createMany({
+                    data: chunk,
+                    skipDuplicates: true
+                });
+                creados += chunk.length;
+            }
+        }
+
+        // 4. Concurrent Updates
+        if (toUpdate.length > 0) {
+            const BATCH_SIZE = 50; // Parallelism limit
+
+            // Process updates in batches
+            for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+                const batch = toUpdate.slice(i, i + BATCH_SIZE);
+
+                const results = await Promise.allSettled(
+                    batch.map(item =>
+                        prisma.producto.update({
+                            where: { id: item.id },
                             data: {
-                                nombre: producto.nombre,
-                                precio: producto.precio,
-                                categoria: producto.categoria,
-                                // Don't update 'activo' or 'imagen' to preserve manual changes
+                                nombre: item.data.nombre,
+                                precio: item.data.precio,
+                                categoria: item.data.categoria,
+                                // Trigger updatedAt
                                 updatedAt: new Date()
                             }
-                        });
-                        return { globalIdx, isNew: false };
-                    } else {
-                        // CREATE new
-                        await prisma.producto.create({
-                            data: producto
-                        });
-                        return { globalIdx, isNew: true };
-                    }
-                })
-            );
+                        })
+                    )
+                );
 
-            // Process results
-            for (const result of results) {
-                if (result.status === 'fulfilled') {
-                    if (result.value.isNew) {
-                        creados++;
-                    } else {
+                results.forEach((res) => {
+                    if (res.status === 'fulfilled') {
                         actualizados++;
+                    } else {
+                        erroresCount++;
+                        // We push a generic error to avoid flooding DB with 3000 error messages if something goes wrong
+                        if (errores.length < 50) {
+                            errores.push({
+                                index: -1,
+                                error: `Update failed: ${res.reason}`
+                            });
+                        }
                     }
-                } else {
-                    errores.push({
-                        index: i + 2,
-                        error:
-                            result.reason instanceof Error
-                                ? result.reason.message
-                                : 'Error desconocido',
-                    });
-                }
+                });
             }
         }
 
@@ -119,14 +138,9 @@ export async function importarProductosMasivo(
                 totalFilas: productos.length,
                 productosCreados: creados,
                 productosActualizados: actualizados,
-                erroresCount: errores.length,
+                erroresCount: erroresCount,
                 erroresDetalle: errores.length > 0 ? errores : undefined,
-                estado:
-                    errores.length === 0
-                        ? 'EXITOSO'
-                        : errores.length === productos.length
-                            ? 'FALLIDO'
-                            : 'PARCIAL',
+                estado: erroresCount === 0 ? 'EXITOSO' : 'PARCIAL',
                 duracionMs: Date.now() - startTime,
                 importadoPor: metadata.importadoPor,
             },
@@ -139,15 +153,16 @@ export async function importarProductosMasivo(
             errores,
             duracionMs: Date.now() - startTime,
         };
+
     } catch (error) {
-        // Log import failure
+        // Log failure
         await prisma.importacionLog.create({
             data: {
                 nombreArchivo: metadata.nombreArchivo,
                 totalFilas: productos.length,
                 productosCreados: creados,
                 productosActualizados: actualizados,
-                erroresCount: productos.length,
+                erroresCount: productos.length, // Assume all failed
                 erroresDetalle: [
                     { index: 0, error: error instanceof Error ? error.message : 'Error desconocido' },
                 ],
