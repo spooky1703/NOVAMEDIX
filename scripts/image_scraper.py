@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-NovaMedix — Image Scraper
-Searches for product images and updates the database.
+NovaMedix — Optimized Image Scraper
+1. Reuses images from existing products with same name/clave (INTERNAL CACHE).
+2. Searches DuckDuckGo concurrently for missing images.
+3. Batch updates database.
 
 Usage:
-    python3 scripts/image_scraper.py              # Process all products without images
-    python3 scripts/image_scraper.py --limit 10   # Process only 10 products (for testing)
-    python3 scripts/image_scraper.py --reset       # Clear all images and re-scrape
+    python3 scripts/image_scraper.py --workers 4   # Run with 4 concurrent threads
 """
 
 import os
@@ -16,42 +16,37 @@ import time
 import argparse
 import json
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import psycopg2
-from psycopg2.extras import DictCursor
+from psycopg2.extras import DictCursor, execute_values
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 try:
     from duckduckgo_search import DDGS
 except ImportError:
-    print("❌ Instala dependencias primero: pip3 install -r scripts/requirements.txt")
+    print("❌ Instala dependencias: pip3 install -r scripts/requirements.txt")
     sys.exit(1)
 
 
 # ─── Config ─────────────────────────────────────────────────────
-DATABASE_URL = os.environ.get(
-    "DIRECT_URL",
-    os.environ.get("DATABASE_URL", "")
-)
+DATABASE_URL = os.environ.get("DIRECT_URL", os.environ.get("DATABASE_URL", ""))
 
-# Words to strip from product names (packaging/dosage info, not useful for image search)
 NOISE_WORDS = {
     "FCO", "FCOS", "TAB", "TABS", "CAP", "CAPS", "SOL", "SOLN",
     "JBE", "AMP", "SUSP", "CRA", "UNG", "OFT", "INY",
     "SPRAY", "POLVO", "SOBRES", "SOBRE", "PZA", "PZS",
     "ML", "MG", "GR", "KG", "LT", "OZ", "CM", "MM",
     "C", "CON", "DE", "EL", "EN", "LA", "LAS", "LOS", "UN", "UNA",
-    "X", "Y", "POR", "DX",
+    "X", "Y", "POR", "DX", "CAJA", "FRASCO",
 }
 
-# Rate limiting
-DELAY_BETWEEN_SEARCHES = 1.5  # seconds
+BATCH_SIZE = 50
 
 
 def parse_database_url(url: str) -> dict:
-    """Parse PostgreSQL connection URL into components."""
     parsed = urlparse(url)
     return {
         "host": parsed.hostname,
@@ -64,227 +59,176 @@ def parse_database_url(url: str) -> dict:
 
 
 def clean_product_name(nombre: str) -> str:
-    """
-    Extract a clean, searchable product name from the nombre field.
-    Examples:
-        'SOLTRIM 80MG/400MG C/20 TABLETAS' → 'soltrim'
-        'TEMPRA TAB 500MG C/20'             → 'tempra'
-        'SUEROX VITAMINS NARANJA-MANGO 630 ML' → 'suerox vitamins naranja mango'
-    """
-    # Remove content in parentheses
+    if not nombre: return ""
     name = re.sub(r"\([^)]*\)", "", nombre).strip()
-
-    # Split on common separators
     name = re.sub(r"[,/]", " ", name)
-
-    # Split into words
     words = re.findall(r"[A-Za-záéíóúñÁÉÍÓÚÑ\-]+", name.upper())
-
-    # Remove noise words, pure numbers, and dosage patterns like C/20
+    
     cleaned = []
     for w in words:
-        # Skip noise words
-        if w in NOISE_WORDS:
-            continue
-        # Skip pure numbers
-        if re.match(r"^\d+$", w):
-            continue
-        # Skip dosage patterns (80MG, 500ML, etc.)
-        if re.match(r"^\d+[A-Z]+$", w):
-            continue
-        # Skip single character words
-        if len(w) <= 1:
-            continue
+        if w in NOISE_WORDS: continue
+        if re.match(r"^\d+$", w): continue
+        if re.match(r"^\d+[A-Z]+$", w): continue
+        if len(w) <= 1: continue
         cleaned.append(w)
 
-    # Take first 3 meaningful words (more specific = better results)
-    result = " ".join(cleaned[:3]).lower()
-    return result if len(result) > 2 else nombre.split()[0].lower() if nombre else "medicamento"
+    return " ".join(cleaned[:3]).lower()
 
 
-def search_product_image(product_name: str, retries: int = 2) -> str | None:
-    """
-    Search DuckDuckGo for a product image.
-    Returns the URL of the best image found, or None.
-    """
+def search_web_image(product_name: str, retries: int = 2) -> str | None:
+    """Search DuckDuckGo with retries."""
     query = f"{product_name} medicamento farmacia mexico"
-
+    
     for attempt in range(retries):
         try:
             with DDGS() as ddgs:
                 results = list(ddgs.images(
                     keywords=query,
-                    max_results=5,
+                    max_results=3,
                     size="Medium",
                     type_image="photo",
                     safesearch="moderate",
                 ))
 
             if results:
-                # Prefer images from known pharmaceutical sites
-                preferred_domains = [
-                    "fahorro.com", "superama.com", "farmaciasguadalajara",
-                    "farmaciasbenavides", "walmart.com", "chedraui.com",
-                    "mercadolibre", "amazon.com", "plm.com", "farmalisto",
-                    "sanpablo.com", "pfrancesa.com", "lacomer.com",
-                    "farmaciasdelahorro", "cornershop",
-                ]
-
-                for result in results:
-                    url = result.get("image", "")
-                    domain = urlparse(url).hostname or ""
-                    if any(d in domain for d in preferred_domains):
-                        return url
-
-                # Fallback: return first result with ok dimensions
-                for result in results:
-                    w = result.get("width", 0)
-                    h = result.get("height", 0)
-                    if w >= 200 and h >= 200:
-                        return result.get("image")
-
-                # Last resort
-                return results[0].get("image")
-
+                # Prioritize preferred domains
+                preferred = ["fahorro", "superama", "farmacias", "walmart", "amazon", "plm"]
+                for r in results:
+                    if any(p in r.get("image", "") for p in preferred):
+                        return r["image"]
+                return results[0]["image"]
+            
             return None
 
-        except Exception as e:
+        except Exception:
             if attempt < retries - 1:
-                time.sleep(2)
+                time.sleep(1 + (attempt * 2))
             else:
                 return None
-
     return None
 
 
-def get_products(conn, limit: int | None = None, reset: bool = False) -> list:
-    """Fetch products from the database."""
-    with conn.cursor(cursor_factory=DictCursor) as cur:
-        if reset:
-            query = "SELECT id, clave, codigo, nombre FROM productos WHERE activo = true ORDER BY nombre"
-        else:
-            query = "SELECT id, clave, codigo, nombre FROM productos WHERE activo = true AND imagen IS NULL ORDER BY nombre"
-
-        if limit:
-            query += f" LIMIT {limit}"
-
-        cur.execute(query)
-        return cur.fetchall()
+def get_db_connection():
+    return psycopg2.connect(**parse_database_url(DATABASE_URL))
 
 
-def update_product_image(conn, product_id: str, image_url: str):
-    """Update a product's image URL in the database."""
+def sync_internal_images(conn):
+    """
+    Step 1: Propagate images internally.
+    If 'Product A' has an image, copy it to all other 'Product A's without image.
+    """
+    print("🔄 Syncing images internally...")
     with conn.cursor() as cur:
-        cur.execute(
-            'UPDATE productos SET imagen = %s, "updatedAt" = NOW() WHERE id = %s',
-            (image_url, product_id)
-        )
-    conn.commit()
+        # Find products with images
+        cur.execute("""
+            SELECT nombre, imagen FROM productos 
+            WHERE imagen IS NOT NULL AND activo = true
+        """)
+        sources = cur.fetchall()
+        
+        updates = 0
+        for name, img in sources:
+            if not name or not img: continue
+            # Update others with exact same name but no image
+            cur.execute("""
+                UPDATE productos 
+                SET imagen = %s, "updatedAt" = NOW()
+                WHERE nombre = %s AND imagen IS NULL
+            """, (img, name))
+            updates += cur.rowcount
+            
+        conn.commit()
+    print(f"✅ Propagated images to {updates} products locally.\n")
+
+
+def process_product(product):
+    """Worker function to process a single product."""
+    pid, nombre, clave = product
+    search_name = clean_product_name(nombre)
+    
+    # Random sleep to avoid instant block
+    time.sleep(0.5) 
+    
+    image_url = search_web_image(search_name)
+    return (pid, image_url, search_name)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NovaMedix Image Scraper")
-    parser.add_argument("--limit", type=int, help="Max products to process")
-    parser.add_argument("--reset", action="store_true", help="Re-scrape all products")
-    parser.add_argument("--dry-run", action="store_true", help="Search but don't update DB")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workers", type=int, default=4, help="Concurrent threads")
+    parser.add_argument("--limit", type=int, help="Limit number of products")
     args = parser.parse_args()
 
     if not DATABASE_URL:
-        print("❌ Set DIRECT_URL or DATABASE_URL environment variable")
-        print('   Example: export DIRECT_URL="postgresql://..."')
+        print("❌ Set DIRECT_URL env var")
         sys.exit(1)
 
-    # Connect to database
-    print("🔌 Connecting to database...")
     try:
-        db_params = parse_database_url(DATABASE_URL)
-        conn = psycopg2.connect(**db_params)
-        print("✅ Connected\n")
+        conn = get_db_connection()
+        print("🔌 Connected to DB")
     except Exception as e:
         print(f"❌ Connection failed: {e}")
         sys.exit(1)
 
-    # If reset, clear all images first
-    if args.reset:
-        with conn.cursor() as cur:
-            cur.execute('UPDATE productos SET imagen = NULL, "updatedAt" = NOW()')
-        conn.commit()
-        print("🗑  All images cleared\n")
+    # 1. Reuse existing images first
+    sync_internal_images(conn)
 
-    # Fetch products
-    products = get_products(conn, args.limit, args.reset)
-    total = len(products)
+    # 2. Fetch remaining missing
+    with conn.cursor() as cur:
+        query = "SELECT id, nombre, clave FROM productos WHERE imagen IS NULL AND activo = true"
+        if args.limit: query += f" LIMIT {args.limit}"
+        cur.execute(query)
+        missing_products = cur.fetchall()
 
+    total = len(missing_products)
     if total == 0:
-        print("✨ All products already have images!")
-        conn.close()
+        print("✨ All done! No images missing.")
         return
 
-    print(f"🔍 Processing {total} products...\n")
+    print(f"🔍 Searching web for {total} products using {args.workers} workers...")
+    
+    buffer = []
+    processed = 0
+    found_count = 0
 
-    found = 0
-    failed = 0
-    results_log = []
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        # Submit all tasks
+        futures = {executor.submit(process_product, p): p for p in missing_products}
 
-    for i, product in enumerate(products):
-        product_id = product["id"]
-        nombre = product["nombre"] or ""
-        clave = product["clave"]
+        for future in as_completed(futures):
+            processed += 1
+            pid, url, term = future.result()
+            
+            if url:
+                found_count += 1
+                buffer.append((url, pid))
+                print(f"[{processed}/{total}] ✅ {term} ")
+            else:
+                print(f"[{processed}/{total}] ❌ {term}")
 
-        # Clean the name for searching
-        search_name = clean_product_name(nombre)
+            # Batch update
+            if len(buffer) >= BATCH_SIZE:
+                with conn.cursor() as cur:
+                    execute_values(cur, 
+                        'UPDATE productos AS p SET imagen = v.img, "updatedAt" = NOW() FROM (VALUES %s) AS v(img, id) WHERE p.id = v.id',
+                        buffer
+                    )
+                conn.commit()
+                print(f"💾 Saved batch of {len(buffer)} images")
+                buffer = []
 
-        # Progress
-        progress = f"[{i + 1}/{total}]"
-        display_name = nombre[:45].ljust(45)
-        print(f"  {progress} {display_name} → \"{search_name}\"", end="", flush=True)
+    # Final batch
+    if buffer:
+        with conn.cursor() as cur:
+            execute_values(cur, 
+                'UPDATE productos AS p SET imagen = v.img, "updatedAt" = NOW() FROM (VALUES %s) AS v(img, id) WHERE p.id = v.id',
+                buffer
+            )
+        conn.commit()
+        print(f"💾 Saved final batch of {len(buffer)}")
 
-        # Search for image
-        image_url = search_product_image(search_name)
-
-        if image_url:
-            found += 1
-            print(f"  ✅")
-
-            if not args.dry_run:
-                update_product_image(conn, product_id, image_url)
-
-            results_log.append({
-                "clave": clave,
-                "nombre": nombre,
-                "search": search_name,
-                "image": image_url,
-                "status": "found"
-            })
-        else:
-            failed += 1
-            print(f"  ❌ no image found")
-            results_log.append({
-                "clave": clave,
-                "nombre": nombre,
-                "search": search_name,
-                "image": None,
-                "status": "not_found"
-            })
-
-        # Rate limit
-        time.sleep(DELAY_BETWEEN_SEARCHES)
-
-    # Summary
-    print(f"\n{'─' * 55}")
-    print(f"  ✅ Images found: {found}/{total}")
-    print(f"  ❌ Not found:    {failed}/{total}")
-    print(f"{'─' * 55}")
-
-    # Save log
-    log_path = os.path.join(os.path.dirname(__file__), "scraper_results.json")
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump(results_log, f, ensure_ascii=False, indent=2)
-    print(f"\n📄 Log saved to {log_path}")
-
+    print(f"\n🎉 Finished! Found: {found_count}/{total}")
     conn.close()
-    print("🔌 Done")
-
 
 if __name__ == "__main__":
     main()
