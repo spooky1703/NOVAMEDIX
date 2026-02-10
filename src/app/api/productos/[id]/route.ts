@@ -33,7 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
         return NextResponse.json({
             success: true,
-            data: serializarProducto(producto),
+            data: producto,
         });
     } catch (error) {
         console.error('Error fetching product:', error);
