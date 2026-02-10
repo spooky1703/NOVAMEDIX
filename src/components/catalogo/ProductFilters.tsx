@@ -31,7 +31,7 @@ export function ProductFilters({
             params.delete(key);
         }
         params.delete('pagina'); // Reset pagination on filter change
-        router.push(`/catalogo?${params.toString()}`);
+        router.push(`/?${params.toString()}`);
     };
 
     return (

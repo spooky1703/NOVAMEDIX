@@ -1,8 +1,7 @@
-import { Producto } from '@prisma/client';
-import { ProductCard } from './ProductCard';
+import { ProductCard, SerializedProduct } from './ProductCard';
 
 interface ProductGridProps {
-    productos: Producto[];
+    productos: SerializedProduct[];
 }
 
 export function ProductGrid({ productos }: ProductGridProps) {

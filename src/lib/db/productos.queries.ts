@@ -73,8 +73,16 @@ export async function obtenerProductosCatalogo(filtros: ProductoFiltros) {
         prisma.producto.count({ where }),
     ]);
 
+    // Convert Decimal to number for Client Component serialization
+    const serializedProducts = productos.map(p => ({
+        ...p,
+        precio: Number(p.precio),
+        createdAt: p.createdAt.toISOString(),
+        updatedAt: p.updatedAt.toISOString(),
+    }));
+
     return {
-        productos,
+        productos: serializedProducts,
         paginacion: {
             total,
             pagina,
@@ -86,7 +94,15 @@ export async function obtenerProductosCatalogo(filtros: ProductoFiltros) {
 
 /** Obtains a single product by its ID */
 export async function obtenerProductoPorId(id: string) {
-    return prisma.producto.findUnique({ where: { id } });
+    const producto = await prisma.producto.findUnique({ where: { id } });
+    if (!producto) return null;
+
+    return {
+        ...producto,
+        precio: Number(producto.precio),
+        createdAt: producto.createdAt.toISOString(),
+        updatedAt: producto.updatedAt.toISOString(),
+    };
 }
 
 /** Obtains all distinct categories */

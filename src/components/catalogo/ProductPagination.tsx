@@ -23,7 +23,7 @@ export function ProductPagination({ paginacion }: ProductPaginationProps) {
         const params = new URLSearchParams(searchParams.toString());
         params.set('pagina', page.toString());
         startTransition(() => {
-            router.push(`/catalogo?${params.toString()}`, { scroll: true });
+            router.push(`/?${params.toString()}`, { scroll: true });
         });
     };
 
