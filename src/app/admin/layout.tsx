@@ -80,8 +80,8 @@ export default function AdminLayout({
                                 href={item.href}
                                 onClick={() => setSidebarOpen(false)}
                                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${isActive
-                                        ? 'bg-emerald-50 text-emerald-700'
-                                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                     }`}
                             >
                                 <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : ''}`} />
@@ -101,7 +101,7 @@ export default function AdminLayout({
                         <p className="text-xs text-slate-500">{session?.user?.email}</p>
                     </div>
                     <div className="flex gap-2">
-                        <Link href="/catalogo" className="flex-1">
+                        <Link href="/" className="flex-1">
                             <Button variant="outline" size="sm" className="w-full text-xs">
                                 Ver catálogo
                             </Button>
