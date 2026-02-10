@@ -35,6 +35,7 @@ export const ProductoCreateSchema = z.object({
     descripcion: z.string().max(1000).optional(),
     precio: z.number().positive('El precio debe ser mayor a 0'),
     categoria: z.string().max(100).optional(),
+    imagen: z.string().url('Debe ser una URL válida').max(1000).optional().or(z.literal('')),
     activo: z.boolean().default(true),
 });
 

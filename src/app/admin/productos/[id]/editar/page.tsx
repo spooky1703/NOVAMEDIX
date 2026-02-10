@@ -28,6 +28,7 @@ export default function EditarProductoPage({ params }: EditarProductoPageProps) 
         descripcion: '',
         precio: '',
         categoria: '',
+        imagen: '',
         activo: true,
     });
 
@@ -44,6 +45,7 @@ export default function EditarProductoPage({ params }: EditarProductoPageProps) 
                         descripcion: data.data.descripcion || '',
                         precio: data.data.precio.toString(),
                         categoria: data.data.categoria || '',
+                        imagen: data.data.imagen || '',
                         activo: data.data.activo,
                     });
                 } else {
@@ -72,6 +74,7 @@ export default function EditarProductoPage({ params }: EditarProductoPageProps) 
                     precio: parseFloat(form.precio),
                     descripcion: form.descripcion || undefined,
                     categoria: form.categoria || undefined,
+                    imagen: form.imagen || undefined,
                 }),
             });
 
@@ -181,6 +184,33 @@ export default function EditarProductoPage({ params }: EditarProductoPageProps) 
                                         setForm({ ...form, categoria: e.target.value })
                                     }
                                 />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="imagen">URL de la Imagen</Label>
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <Input
+                                        id="imagen"
+                                        value={form.imagen}
+                                        onChange={(e) => setForm({ ...form, imagen: e.target.value })}
+                                        placeholder="https://ejemplo.com/imagen.jpg"
+                                    />
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Deja vacío para usar la imagen por defecto o permitir que el bot la actualice.
+                                    </p>
+                                </div>
+                                {form.imagen && (
+                                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-slate-200">
+                                        <img
+                                            src={form.imagen}
+                                            alt="Vista previa"
+                                            className="h-full w-full object-contain p-1"
+                                            onError={(e) => (e.currentTarget.style.display = 'none')}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
